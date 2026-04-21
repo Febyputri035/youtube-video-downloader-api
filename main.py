@@ -1,131 +1,105 @@
 from flask import Flask, request, jsonify, render_template_string
 from pytubefix import YouTube
-import re
-import os
+import re, os
 
 app = Flask(__name__)
 
-# --- TEMPLATE HTML UNTUK HALAMAN DOCS ---
-HTML_DOCS = """
+# --- INI HALAMAN DASHBOARD & DOCS (OTOMATIS MUNCUL DI BROWSER) ---
+HTML_UI = """
 <!DOCTYPE html>
-<html>
+<html lang="id">
 <head>
-    <title>YouTube Downloader API Docs</title>
+    <meta charset="UTF-8">
+    <title>YouTube Downloader API - Dashboard</title>
     <style>
-        body { font-family: 'Segoe UI', Tahoma, Geneva, Verdana, sans-serif; max-width: 800px; margin: 40px auto; line-height: 1.6; color: #333; padding: 20px; }
-        .card { background: #f9f9f9; border: 1px solid #ddd; padding: 20px; border-radius: 8px; margin-bottom: 20px; }
-        code { background: #eee; padding: 2px 5px; border-radius: 4px; color: #d63384; }
-        .method { font-weight: bold; color: #007bff; }
-        .endpoint { font-weight: bold; font-size: 1.1em; }
-        h1 { color: #cc0000; }
-        .try-it { background: #e7f3ff; padding: 15px; border-radius: 8px; border-left: 5px solid #007bff; }
+        body { font-family: 'Segoe UI', Tahoma, sans-serif; max-width: 700px; margin: 50px auto; background: #f4f7f6; padding: 20px; }
+        .container { background: white; padding: 30px; border-radius: 12px; box-shadow: 0 4px 15px rgba(0,0,0,0.1); }
+        h1 { color: #ff0000; text-align: center; }
+        .section { margin-bottom: 25px; padding: 15px; border: 1px solid #eee; border-radius: 8px; }
+        input { width: 100%; padding: 12px; margin: 10px 0; border: 1px solid #ddd; border-radius: 6px; box-sizing: border-box; }
+        button { background: #ff0000; color: white; border: none; padding: 12px 20px; border-radius: 6px; cursor: pointer; width: 100%; font-weight: bold; }
+        button:hover { background: #cc0000; }
+        code { background: #272822; color: #f8f8f2; padding: 10px; display: block; border-radius: 5px; font-size: 0.9em; margin-top: 10px; }
     </style>
 </head>
 <body>
-    <h1>📺 YouTube API Downloader Docs</h1>
-    <p>Selamat datang! API ini sedang berjalan. Kamu bisa menggunakan endpoint di bawah ini:</p>
+    <div class="container">
+        <h1>📺 YT Downloader Dashboard</h1>
+        
+        <div class="section">
+            <h3>1. Download Langsung (Mudah)</h3>
+            <p>Masukkan link YouTube & resolusi (contoh: 720p), lalu klik download.</p>
+            <input type="text" id="url" placeholder="https://www.youtube.com/watch?v=...">
+            <input type="text" id="res" placeholder="720p" value="720p">
+            <button onclick="download()">Download Video</button>
+            <p id="status"></p>
+        </div>
 
-    <div class="card">
-        <span class="method">POST</span> <span class="endpoint">/video_info</span>
-        <p>Mendapatkan informasi detail tentang video YouTube.</p>
-        <code>Body: {"url": "LINK_YOUTUBE"}</code>
+        <div class="section">
+            <h3>2. Dokumentasi API (Endpoint)</h3>
+            <p>Jika ingin pakai PowerShell/Code lain:</p>
+            <ul>
+                <li><code>POST /video_info</code> - Cek info video</li>
+                <li><code>POST /download/&lt;res&gt;</code> - Proses download</li>
+            </ul>
+        </div>
     </div>
 
-    <div class="card">
-        <span class="method">POST</span> <span class="endpoint">/available_resolutions</span>
-        <p>Melihat daftar resolusi yang bisa didownload.</p>
-        <code>Body: {"url": "LINK_YOUTUBE"}</code>
-    </div>
-
-    <div class="card">
-        <span class="method">POST</span> <span class="endpoint">/download/&lt;resolution&gt;</span>
-        <p>Mendownload video dengan resolusi spesifik (contoh: <code>/download/720p</code>).</p>
-        <code>Body: {"url": "LINK_YOUTUBE"}</code>
-    </div>
-
-    <hr>
-    <div class="try-it">
-        <h3>💡 Tips Cepat:</h3>
-        <p>Karena API ini menggunakan <b>POST</b>, kamu tidak bisa langsung klik link di atas. 
-        Gunakan aplikasi seperti <b>Postman</b> atau perintah PowerShell yang tadi kita pelajari.</p>
-    </div>
+    <script>
+        async function download() {
+            const url = document.getElementById('url').value;
+            const res = document.getElementById('res').value;
+            const status = document.getElementById('status');
+            status.innerText = "Sedang memproses...";
+            
+            try {
+                const response = await fetch('/download/' + res, {
+                    method: 'POST',
+                    headers: {'Content-Type': 'application/json'},
+                    body: JSON.stringify({url: url})
+                });
+                const data = await response.json();
+                status.innerText = data.message || data.error;
+            } catch (e) {
+                status.innerText = "Error: " + e;
+            }
+        }
+    </script>
 </body>
 </html>
 """
 
-def download_video(url, resolution):
-    try:
-        yt = YouTube(url)
-        stream = yt.streams.filter(progressive=True, file_extension='mp4', resolution=resolution).first()
-        if stream:
-            out_dir = f"./downloads/{url.split('v=')[1].split('&')[0]}"
-            os.makedirs(out_dir, exist_ok=True)
-            stream.download(output_path=out_dir)
-            return True, None
-        else:
-            return False, "Video with the specified resolution not found."
-    except Exception as e:
-        return False, str(e)
-
-def get_video_info(url):
-    try:
-        yt = YouTube(url)
-        video_info = {
-            "title": yt.title,
-            "author": yt.author,
-            "length": yt.length,
-            "views": yt.views,
-            "description": yt.description,
-            "publish_date": yt.publish_date,
-        }
-        return video_info, None
-    except Exception as e:
-        return None, str(e)
-
 def is_valid_youtube_url(url):
-    pattern = r"^(https?://)?(www\.)?youtube\.com/watch\?v=[\w-]+(&\S*)?$"
-    return re.match(pattern, url) is not None
+    return re.match(r"^(https?://)?(www\.)?youtube\.com/watch\?v=[\w-]+", url) is not None
 
-# --- ENDPOINT BARU: HALAMAN DOCS ---
 @app.route('/')
-def index():
-    return render_template_string(HTML_DOCS)
-
-@app.route('/download/<resolution>', methods=['POST'])
-def download_by_resolution(resolution):
-    data = request.get_json()
-    url = data.get('url')
-    if not url or not is_valid_youtube_url(url):
-        return jsonify({"error": "Invalid or missing URL"}), 400
-    
-    success, error_message = download_video(url, resolution)
-    if success:
-        return jsonify({"message": f"Resolution {resolution} downloaded."}), 200
-    return jsonify({"error": error_message}), 500
+def home():
+    return render_template_string(HTML_UI)
 
 @app.route('/video_info', methods=['POST'])
 def video_info():
     data = request.get_json()
     url = data.get('url')
-    if not url or not is_valid_youtube_url(url):
-        return jsonify({"error": "Invalid or missing URL"}), 400
-    
-    info, error = get_video_info(url)
-    return jsonify(info) if info else (jsonify({"error": error}), 500)
-
-@app.route('/available_resolutions', methods=['POST'])
-def available_resolutions():
-    data = request.get_json()
-    url = data.get('url')
-    if not url or not is_valid_youtube_url(url):
-        return jsonify({"error": "Invalid or missing URL"}), 400
-    
+    if not url or not is_valid_youtube_url(url): return jsonify({"error": "Link tidak valid"}), 400
     try:
         yt = YouTube(url)
-        res = sorted(list(set([s.resolution for s in yt.streams.filter(progressive=True) if s.resolution])))
-        return jsonify({"available_resolutions": res}), 200
-    except Exception as e:
-        return jsonify({"error": str(e)}), 500
+        return jsonify({"title": yt.title, "author": yt.author, "length": yt.length}), 200
+    except Exception as e: return jsonify({"error": str(e)}), 500
+
+@app.route('/download/<resolution>', methods=['POST'])
+def download_by_resolution(resolution):
+    data = request.get_json()
+    url = data.get('url')
+    if not url or not is_valid_youtube_url(url): return jsonify({"error": "Link tidak valid"}), 400
+    try:
+        yt = YouTube(url)
+        stream = yt.streams.filter(progressive=True, file_extension='mp4', resolution=resolution).first()
+        if stream:
+            os.makedirs("./downloads", exist_ok=True)
+            stream.download(output_path="./downloads")
+            return jsonify({"message": f"Berhasil! Video {yt.title} tersimpan di folder /downloads"}), 200
+        return jsonify({"error": "Resolusi tidak ditemukan"}), 404
+    except Exception as e: return jsonify({"error": str(e)}), 500
 
 if __name__ == '__main__':
     app.run(debug=True)
