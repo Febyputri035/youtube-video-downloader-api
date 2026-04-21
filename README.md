@@ -24,7 +24,7 @@ This project is designed to simplify the process of interacting with YouTube con
 - re for URL validation.
 
 ## Usage
-1. Clone this repository: `git clone https://github.com/zararashraf/youtube-video-downloader-api.git`
+1. Clone this repository: `git clone https://github.com/Febyputri035/youtube-video-downloader-api`
 2. Install the required libraries: `pip install flask pytubefix`
 3. Run the Flask application: `python main.py`
 4. Access the API endpoints using HTTP requests (e.g., POST requests in Postman).
